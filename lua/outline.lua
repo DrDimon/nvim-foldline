@@ -4,6 +4,7 @@ OutlineBuffer = {
   source_buf_handle = -1,
   outline_buf_handle = -1,
   outline_window = -1,
+  data = {}, -- {row, foldlevel, content}
 }
 
 function OutlineBuffer:new (o)
@@ -13,7 +14,7 @@ function OutlineBuffer:new (o)
   return o
 end
 
-function OutlineBuffer:get_fold_info()
+function OutlineBuffer:update_fold_info()
 
   -- We need to restore the window/buffer:
   local current_buf_handle = api.nvim_win_get_buf(0)
@@ -28,12 +29,12 @@ function OutlineBuffer:get_fold_info()
 
   local previous_fold_level = -1
   local num_lines = vim.api.nvim_buf_line_count(self.source_buf_handle)
-  local result = {}
 
   -- expand all folds, or we won't find them all:
   api.nvim_command('normal! zR')
   api.nvim_command('keepjumps normal! gg')
   local previous_line = 0
+  self.data = {}
 
   while( true ) do
     -- Jump to the start of the next fold:
@@ -46,7 +47,11 @@ function OutlineBuffer:get_fold_info()
     if previous_line == r then
       break
     else
-      table.insert(result, r .. ' (' .. vim.fn.foldlevel(r) .. '): ' .. vim.fn.getline(r))
+      table.insert(self.data, {
+        row = r,
+        foldlevel = vim.fn.foldlevel(r),
+        content = vim.fn.getline(r),
+      })
       previous_line = r
     end
   end
@@ -58,17 +63,25 @@ function OutlineBuffer:get_fold_info()
   api.nvim_set_current_win(current_window)
   api.nvim_command('buffer ' .. current_buf_handle)
 
-  return result
 end
 
 function OutlineBuffer:refresh_outline()
 
   vim.api.nvim_buf_set_option(self.outline_buf_handle, 'modifiable', true)
 
-  local fold_info = self:get_fold_info()
-  api.nvim_buf_set_lines(self.outline_buf_handle, 0, -1, true, fold_info)
+  self:update_fold_info()
+  api.nvim_buf_set_lines(self.outline_buf_handle, 0, -1, true, self:get_strings())
 
   vim.api.nvim_buf_set_option(self.outline_buf_handle, 'modifiable', false)
+end
+
+function OutlineBuffer:get_strings()
+  local result = {}
+  for k, v in ipairs(self.data) do
+    table.insert(result, v.row .. ": " .. v.content)
+  end
+
+  return result
 end
 
 local function open_buffer()
@@ -86,7 +99,6 @@ local function open_buffer()
   api.nvim_command('40 vsplit')
   local window = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(window, outline_buf_handle)
-
 
   -- TODO: delete this object if the buffer is deleted:
   local buffer = OutlineBuffer:new({
