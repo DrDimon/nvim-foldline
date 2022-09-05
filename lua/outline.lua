@@ -1,8 +1,9 @@
 local api = vim.api
 
 OutlineBuffer = {
-  main_buf_handle = -1,
-  outline_buf_handle = -1
+  source_buf_handle = -1,
+  outline_buf_handle = -1,
+  outline_window = -1,
 }
 
 function OutlineBuffer:new (o)
@@ -14,16 +15,24 @@ end
 
 function OutlineBuffer:get_fold_info()
 
-  -- Go to our main buffer:
+  -- We need to restore the window/buffer:
   local current_buf_handle = api.nvim_win_get_buf(0)
-  api.nvim_command('buffer ' .. self.main_buf_handle);
+  local current_window = api.nvim_get_current_win()
+
+  -- Change window to outline window, so we don't affect the actual window
+  -- when we expand folds and move around:
+  api.nvim_set_current_win(self.outline_window)
+
+  -- Set buffer to where we create our outline from:
+  api.nvim_command('buffer ' .. self.source_buf_handle);
 
   local previous_fold_level = -1
-  local num_lines = vim.api.nvim_buf_line_count(self.main_buf_handle)
+  local num_lines = vim.api.nvim_buf_line_count(self.source_buf_handle)
   local result = {}
 
   -- expand all folds, or we won't find them all:
   api.nvim_command('normal! zR')
+  api.nvim_command('keepjumps normal! gg')
   local previous_line = 0
 
   while( true ) do
@@ -42,7 +51,11 @@ function OutlineBuffer:get_fold_info()
     end
   end
 
-  -- restore the active buffer:
+  -- This window should show the outline buffer:
+  api.nvim_command('buffer ' .. self.outline_buf_handle)
+
+  -- Change back to to original window/buffer:
+  api.nvim_set_current_win(current_window)
   api.nvim_command('buffer ' .. current_buf_handle)
 
   return result
@@ -60,7 +73,7 @@ end
 
 local function open_buffer()
 
-  local main_buf_handle = api.nvim_win_get_buf(0)
+  local source_buf_handle = api.nvim_win_get_buf(0)
 
   -- setup new buffer for the outline:
   local outline_buf_handle = vim.api.nvim_create_buf(false, true)
@@ -69,16 +82,30 @@ local function open_buffer()
   vim.api.nvim_buf_set_option(outline_buf_handle, 'bufhidden', 'delete')
 
   -- Create a split and put the new buffer inside it:
+  local source_window = vim.api.nvim_get_current_win()
   api.nvim_command('40 vsplit')
   local window = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(window, outline_buf_handle)
 
 
   -- TODO: delete this object if the buffer is deleted:
-  local buffer = OutlineBuffer:new({main_buf_handle = main_buf_handle, outline_buf_handle = outline_buf_handle})
+  local buffer = OutlineBuffer:new({
+    source_buf_handle = source_buf_handle,
+    outline_buf_handle = outline_buf_handle,
+    outline_window = window,
+  })
 
   -- setup content with the outline:
   buffer:refresh_outline()
+
+  local callback_function = function() buffer:refresh_outline() end
+  vim.api.nvim_create_autocmd(
+    {"InsertLeave", "TextChanged"},
+    {callback = callback_function}
+  )
+
+  -- Restore window:
+  api.nvim_set_current_win(source_window)
 end
 
 return {
