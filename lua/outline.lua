@@ -2,6 +2,7 @@ local api = vim.api
 
 OutlineBuffer = {
   source_buf_handle = -1,
+  source_window = -1,
   outline_buf_handle = -1,
   outline_window = -1,
   data = {}, -- {row, foldlevel, content}
@@ -84,6 +85,14 @@ function OutlineBuffer:get_strings()
   return result
 end
 
+function OutlineBuffer:jump_to_source_row(row)
+  -- TODO: check errors:
+  local row_in_source = self.data[row].row
+  api.nvim_set_current_win(self.source_window)
+  vim.api.nvim_win_set_cursor(self.source_window, {row_in_source, 0})
+  api.nvim_command('normal! zv')
+end
+
 local function open_buffer()
 
   local source_buf_handle = api.nvim_win_get_buf(0)
@@ -92,7 +101,8 @@ local function open_buffer()
   local outline_buf_handle = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(outline_buf_handle, 'buftype', 'nofile')
   vim.api.nvim_buf_set_option(outline_buf_handle, 'modifiable', false)
-  vim.api.nvim_buf_set_option(outline_buf_handle, 'bufhidden', 'delete')
+  vim.api.nvim_buf_set_option(outline_buf_handle, 'modifiable', false)
+  vim.api.nvim_buf_set_option(outline_buf_handle, 'bufhidden', 'hide')
 
   -- Create a split and put the new buffer inside it:
   local source_window = vim.api.nvim_get_current_win()
@@ -103,8 +113,19 @@ local function open_buffer()
   -- TODO: delete this object if the buffer is deleted:
   local buffer = OutlineBuffer:new({
     source_buf_handle = source_buf_handle,
+    source_window = source_window,
     outline_buf_handle = outline_buf_handle,
     outline_window = window,
+  })
+
+  -- setup keymaps:
+  -- TODO: user variables/config for keymap.
+  vim.api.nvim_buf_set_keymap(outline_buf_handle, 'n', '<cr>', '', {
+    noremap = true,
+    callback = function()
+      local r,c = unpack(vim.api.nvim_win_get_cursor(0))
+      buffer:jump_to_source_row(r)
+    end,
   })
 
   -- setup content with the outline:
